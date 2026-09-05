@@ -15,6 +15,7 @@ import type { AttachmentsService } from '../attachments';
 import type { ProcessedImageCacheService } from '../processed-image-cache';
 import type { FileReadCacheService } from '../file-read-cache';
 import { DisposableService } from '../shared/disposable';
+import { rm } from '../../fs';
 import type { AgentStore } from '../../store/agent-store';
 import {
   DomainAdapterRegistry,
@@ -1535,13 +1536,20 @@ export class AgentManager extends DisposableService {
     // Clear the agent from the persistence layer
     await this.persistenceDb.deleteAgentInstance(instanceId);
 
-    // Permanently remove on-disk attachment blobs (archive intentionally
-    // preserves them so a resumed agent can still access its attachments).
+    // Permanently remove the agent's entire on-disk data directory (archive
+    // intentionally preserves it so a resumed agent can still access its
+    // attachments, apps, and shell logs). Removing the whole directory
+    // — rather than only the attachments subfolder — also catches the
+    // `apps/` and `shell-logs/` subtrees and the now-empty parent folder,
+    // none of which had their own cleanup path.
     try {
-      await this.attachments.deleteAgentBlobs(instanceId);
+      await rm(this.host.paths.agentDir(instanceId), {
+        recursive: true,
+        force: true,
+      });
     } catch (error) {
       this.logger.error(
-        `[AgentManager] Failed to delete attachment blobs for agent ${instanceId}`,
+        `[AgentManager] Failed to delete on-disk data directory for agent ${instanceId}`,
         error,
       );
     }

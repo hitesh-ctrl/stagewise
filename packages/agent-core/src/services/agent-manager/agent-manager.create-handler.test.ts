@@ -3,7 +3,15 @@ import { AgentManager } from './agent-manager';
 import { CommandRegistry } from '../../commands/command-registry';
 import { AgentTypeRegistry } from '../../agents/agents-registry';
 import { AgentTypes } from '../../types/agent';
-import { createTestAgentHost } from '../../host/test-utils';
+import {
+  createTestAgentHost,
+  createTestHostPaths,
+} from '../../host/test-utils';
+import { rm } from '../../fs';
+
+vi.mock('../../fs', () => ({
+  rm: vi.fn(async () => {}),
+}));
 
 const flush = async () => {
   await Promise.resolve();
@@ -42,7 +50,11 @@ function createDeps() {
       update: vi.fn(),
       subscribe: vi.fn(() => () => {}),
     },
-    host: createTestAgentHost(),
+    host: createTestAgentHost({
+      paths: createTestHostPaths({
+        agentDir: (agentId: string) => `/tmp/agents/${agentId}`,
+      }),
+    }),
     agentTypeRegistry: new AgentTypeRegistry(),
   };
 }
@@ -131,11 +143,13 @@ describe('AgentManager unread handlers', () => {
 });
 
 describe('AgentManager agents.delete handler', () => {
-  it('completes after attachment cleanup fails', async () => {
+  afterEach(() => {
+    vi.mocked(rm).mockReset().mockResolvedValue(undefined);
+  });
+
+  it('completes after on-disk data-directory cleanup fails', async () => {
     const deps = createDeps();
-    deps.attachments.deleteAgentBlobs.mockRejectedValueOnce(
-      new Error('filesystem unavailable'),
-    );
+    vi.mocked(rm).mockRejectedValueOnce(new Error('filesystem unavailable'));
     const manager = buildManager(deps);
 
     await deps.registry.dispatch<unknown[], void>(
@@ -143,7 +157,10 @@ describe('AgentManager agents.delete handler', () => {
       { callerId: 'test' },
       ['agent-1'],
     );
-    expect(deps.attachments.deleteAgentBlobs).toHaveBeenCalledWith('agent-1');
+    expect(rm).toHaveBeenCalledWith('/tmp/agents/agent-1', {
+      recursive: true,
+      force: true,
+    });
     await manager.teardown();
   });
 });

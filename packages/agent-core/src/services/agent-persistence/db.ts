@@ -12,6 +12,7 @@ import {
   eq,
   sql,
   gte,
+  lt,
   or,
 } from 'drizzle-orm';
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
@@ -749,5 +750,22 @@ export class AgentPersistenceDB {
       .from(schema.agentInstances)
       .where(rootChatFilter);
     return result[0]?.count ?? 0;
+  }
+
+  /**
+   * Returns the ids of top-level chat agents whose `lastMessageAt` is older
+   * than `cutoff`. Used by the retention housekeeping job to find agents
+   * eligible for automatic deletion. Only root agents are returned — forks
+   * and side chats are cleaned up as children when their root is deleted
+   * via {@link deleteAgentInstance}.
+   */
+  public async getStaleRootAgentInstanceIds(cutoff: Date): Promise<string[]> {
+    const rows = await this._db
+      .select({ id: schema.agentInstances.id })
+      .from(schema.agentInstances)
+      .where(
+        and(rootChatFilter, lt(schema.agentInstances.lastMessageAt, cutoff)),
+      );
+    return rows.map((row) => row.id);
   }
 }
