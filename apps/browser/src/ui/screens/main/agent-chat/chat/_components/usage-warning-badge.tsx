@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useKartonState } from '@ui/hooks/use-karton';
+import { useState } from 'react';
+import { useKartonState, useComparingSelector } from '@ui/hooks/use-karton';
 import { TriangleAlertIcon } from 'lucide-react';
 import { SidebarToast } from '../../../_components/sidebar-toast';
 
@@ -20,25 +20,52 @@ function findActiveThreshold(
   return null;
 }
 
+type HighestUsageWarning = { usedPercent: number; windowType: string };
+
+function usageWarningsEqual(
+  a: HighestUsageWarning | undefined,
+  b: HighestUsageWarning | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.usedPercent === b.usedPercent && a.windowType === b.windowType;
+}
+
 export function UsageWarningBadge() {
   const [dismissedThreshold, setDismissedThreshold] = useState(
     () => lastDismissedThreshold,
   );
 
   // Scan all agents — not just the open one — so the warning is global.
-  const instances = useKartonState((s) => s.agents.instances);
-  const stateUsageWarning = useMemo(() => {
-    let highest:
-      | NonNullable<(typeof instances)[string]['state']['usageWarning']>
-      | undefined;
-    for (const instance of Object.values(instances)) {
-      const warning = instance.state.usageWarning;
-      if (warning && (!highest || warning.usedPercent > highest.usedPercent)) {
-        highest = warning;
+  //
+  // The derivation lives *inside* the selector (not a downstream useMemo)
+  // and is wrapped in useComparingSelector: subscribing to the raw
+  // `s.agents.instances` map re-renders on every Karton patch to *any*
+  // agent's state, anywhere in the app (structural sharing means that
+  // object gets a new reference on every streamed token). A useMemo
+  // keyed on that map does nothing, because its only dependency is never
+  // stable. useComparingSelector holds onto the previous derived value
+  // and returns it verbatim when the highest usage warning hasn't
+  // actually changed, so useSyncExternalStore's reference-equality
+  // bail-out works the way it's supposed to.
+  const stateUsageWarning = useKartonState(
+    useComparingSelector((s): HighestUsageWarning | undefined => {
+      let highest: HighestUsageWarning | undefined;
+      for (const instance of Object.values(s.agents.instances)) {
+        const warning = instance.state.usageWarning;
+        if (
+          warning &&
+          (!highest || warning.usedPercent > highest.usedPercent)
+        ) {
+          highest = {
+            usedPercent: warning.usedPercent,
+            windowType: warning.windowType,
+          };
+        }
       }
-    }
-    return highest;
-  }, [instances]);
+      return highest;
+    }, usageWarningsEqual),
+  );
 
   if (!stateUsageWarning) return null;
 
