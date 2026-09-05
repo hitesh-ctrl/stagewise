@@ -163,6 +163,32 @@ export class AgentManagerService extends DisposableService {
     await this.manager.retryNetworkFailedAgentsNow(reason);
   }
 
+  /**
+   * Returns the ids of top-level chat agents inactive since before
+   * `cutoff`. Used by the retention housekeeping job.
+   */
+  public async getStaleAgentIds(cutoff: Date): Promise<string[]> {
+    return this.agentDb.getStaleRootAgentInstanceIds(cutoff);
+  }
+
+  /**
+   * Permanently deletes an agent through the same `agents.delete` command
+   * path used by manual, user-initiated deletion — so automatic retention
+   * and manual delete never diverge in what gets cleaned up (DB rows and
+   * on-disk data directory).
+   */
+  public async deleteAgentForRetention(instanceId: string): Promise<void> {
+    const deletedAgentIds = this.onAgentsDeleted
+      ? await this.collectAgentTreeIds(instanceId)
+      : null;
+    await this.commandRegistry.dispatch(
+      'agents.delete',
+      { callerId: 'agent-retention' },
+      [instanceId],
+    );
+    if (deletedAgentIds) await this.onAgentsDeleted?.(deletedAgentIds);
+  }
+
   public async handleWatcherEvent(event: WatcherEvent): Promise<void> {
     const elapsedMs = Math.max(0, event.finishedAt - event.startedAt);
     const output = event.output.trim();

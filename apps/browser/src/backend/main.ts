@@ -33,6 +33,7 @@ import { AgentCorePersistence } from '@stagewise/agent-core/persistence';
 import type { AgentManagerStartupPolicy } from '@stagewise/agent-core';
 import { AgentTypes } from '@shared/karton-contracts/ui/agent';
 import { AutoUpdateService } from './services/auto-update';
+import { AgentRetentionService } from './services/agent-retention';
 import { LocalPortsScannerService } from './services/local-ports-scanner';
 import { WorktreeSetupSettingsService } from './services/worktree-setup-settings';
 import type { WorktreeSetupScriptVariant } from '@shared/worktree-setup';
@@ -698,6 +699,17 @@ export async function main({ launchOptions: { verbose } }: MainParameters) {
       ),
     (agentIds) => windowLayoutService.removeDeletedSideChatTabs(agentIds),
   );
+
+  // Daily housekeeping: deletes agents inactive past the user-configured
+  // retention window (preferences.agent.agentRetentionDays, default 30
+  // days, null disables). Reuses the same `agents.delete` cleanup path as
+  // manual deletion so DB rows and on-disk data never diverge.
+  const agentRetentionService = AgentRetentionService.create(
+    logger,
+    preferencesService,
+    agentManagerService,
+  );
+
   windowLayoutService.setOnCloseSideChat((agentId) =>
     agentCoreSeam.registry.dispatch(
       'agents.discardSideChat',
@@ -1350,6 +1362,9 @@ export async function main({ launchOptions: { verbose } }: MainParameters) {
       runTeardown('agentCorePersistence', () => persistence.teardown());
       runTeardown('assetCacheService', () => assetCacheService.teardown());
       runTeardown('autoUpdateService', () => autoUpdateService.teardown());
+      runTeardown('agentRetentionService', () =>
+        agentRetentionService.teardown(),
+      );
       runTeardown('agentPowerSaveBlockerService', () =>
         agentPowerSaveBlockerService.teardown(),
       );

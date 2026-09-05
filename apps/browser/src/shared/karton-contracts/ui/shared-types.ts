@@ -1261,6 +1261,13 @@ export const userPreferencesSchema = z.object({
             }),
         )
         .default([]),
+      /**
+       * Days of inactivity (no new message) after which an agent is
+       * automatically deleted by the housekeeping job, along with its
+       * chat history and on-disk data. `null` disables automatic
+       * retention entirely.
+       */
+      agentRetentionDays: z.number().int().min(1).nullable().default(30),
     })
     .default({
       workspaceSettings: {},
@@ -1276,6 +1283,7 @@ export const userPreferencesSchema = z.object({
       },
       activePresetId: undefined,
       modelPresets: [],
+      agentRetentionDays: 30,
     }),
   /** LLM provider endpoint configurations (API keys, custom URLs) */
   providerConfigs: providerConfigsSchema.default({
@@ -1396,6 +1404,7 @@ export const defaultUserPreferences: UserPreferences = {
     },
     activePresetId: undefined,
     modelPresets: [],
+    agentRetentionDays: 30,
   },
   providerConfigs: {
     anthropic: { mode: 'stagewise' },
